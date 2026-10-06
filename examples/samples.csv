@@ -1,0 +1,2 @@
+sample_id,input_type,read1,read2,genome,biological_sample_id,cohort
+example_isolate,isolate_genomes,,,example.fna,example_sample,example

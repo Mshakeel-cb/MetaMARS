@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metamars_prep"
+version = "0.2.0"
+description = "Prepare metagenomes and isolates for genome-resolved AMR evidence"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+metamars_prep = "metamars_prep.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["metamars_prep*"]

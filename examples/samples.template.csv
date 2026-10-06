@@ -1,0 +1,5 @@
+sample_id,input_type,read1,read2,genome,biological_sample_id,subject_id,cohort
+meta01,metagenome_reads,reads/meta01_R1.fastq.gz,reads/meta01_R2.fastq.gz,,sample01,person01,case
+isolate01,isolate_reads,reads/isolate01_R1.fastq.gz,reads/isolate01_R2.fastq.gz,,sample02,person02,control
+isolate02,isolate_genomes,,,genomes/isolate02.fna,sample03,person03,control
+mag01,MAGs,,,genomes/mag01.fna,sample01,person01,case
