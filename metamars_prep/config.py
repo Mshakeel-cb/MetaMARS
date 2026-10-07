@@ -13,6 +13,9 @@ class PreparationOptions:
     memory: int = 8
     tax_rank: str = "species"
     skip_taxonomy: bool = False
+    verbose: bool = False
+    db_dir: Path = field(default_factory=lambda: Path.home() / "databases" / "metamars")
+    checkm2_db: str | None = None
     gtdbtk_db: str | None = None
     input_type: str | None = None
 

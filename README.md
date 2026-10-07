@@ -1,6 +1,6 @@
 # metaMARS preparation (`metamars_prep`)
 
-A direct Python pipeline for preparing metagenomes and isolate genomes for downstream AMR evidence layers. The Python package has no runtime Python dependencies. Bioinformatics executables and reference databases are installed separately.
+A direct Python pipeline for preparing metagenomes and isolate genomes for downstream AMR evidence layers. The Python package has no runtime Python dependencies. Install the bioinformatics executables separately; reference databases are downloaded automatically when no existing database path is supplied.
 
 This first module produces contigs, genome bins, quality reports, taxonomy, and comparison groups. AMR annotation, transfer inference, and population statistics belong to subsequent evidence modules.
 
@@ -23,7 +23,7 @@ Every assembled contig is retained, including short and unbinned sequences and s
 
 ## Install and run
 
-Requires Python 3.10 or newer. Run from this directory without installing the Python package:
+Requires Python 3.10 or newer with current security updates (`tarfile.data_filter` is required for automatic GTDB extraction). Run from this directory without installing the Python package:
 
 ```bash
 python3 -m metamars_prep --help
@@ -40,6 +40,7 @@ The CLI runs preparation directly. A sample sheet is required for one or multipl
 
 ```text
   -h, --help            help message
+  -v, --verbose         show commands and detailed tool output dflt=False
   -o, --outdir          output directory
   -t, --threads         working threads dflt=2
   -j, --jobs            Maximum concurrent samples dflt=1
@@ -47,8 +48,10 @@ The CLI runs preparation directly. A sample sheet is required for one or multipl
   -tr, --tax-rank       automatically group all classified genomes at specified rank {domain, phylum, class,
                         order,family,genus,species} dflt=species
   -st, --skip-taxonomy  Explicitly omit GTDB-Tk, groups are marked unresolved dflt=False
-  --gtdbtk-db           GTDB-Tk reference database directory
-  -it, --input-type      {metagenome_reads,isolate_reads,isolate_genomes,MAGs}
+  --db-dir             Directory for automatic database downloads dflt=~/databases/metamars
+  --checkm2-db          Use an existing CheckM2 .dmnd file or directory
+  --gtdbtk-db           Use an existing GTDB-Tk reference database directory
+  -it, --input-type     {metagenome_reads,isolate_reads,isolate_genomes,MAGs}
   -s, --samples         CSV/TSV sample sheet; paths are relative to this file
 ```
 
@@ -64,16 +67,30 @@ conda env create -f envs/checkm2.yml
 conda env create -f envs/gtdbtk.yml
 ```
 
-metaMARS first uses executables available on `PATH`. For missing commands, it automatically looks for the named `metamars-preparation`, `metamars-checkm2`, and `metamars-gtdbtk` environments and launches the tool through `conda run` or `mamba run`. Conda or Mamba must be available on `PATH` (or through `CONDA_EXE`/`MAMBA_EXE`). Keep the names in the supplied YAML files. Environments and databases are never installed or downloaded during a pipeline run.
+metaMARS first uses executables available on `PATH`. For missing commands, it automatically looks for the named `metamars-preparation`, `metamars-checkm2`, and `metamars-gtdbtk` environments and launches the tool through `conda run` or `mamba run`. Conda or Mamba must be available on `PATH` (or through `CONDA_EXE`/`MAMBA_EXE`). Keep the names in the supplied YAML files. Software environments are not installed during a pipeline run.
 
 The environments separate the preparation tools from the CheckM2 and GTDB-Tk dependency stacks. SPAdes includes metaSPAdes, QUAST includes MetaQUAST, and MetaBAT2 includes `jgi_summarize_bam_contig_depths`. Installing the Python package alone does not install these programs.
 
-CheckM2 needs a compatible DIAMOND database, supplied through `CHECKM2DB`. GTDB-Tk uses `--gtdbtk-db` or `GTDBTK_DATA_PATH`; the command-line path takes precedence. GTDB-Tk and its database are unnecessary when `--skip-taxonomy` is set. Databases are not downloaded automatically. Follow the [CheckM2 database instructions](https://github.com/chklovski/CheckM2#database) and [GTDB-Tk installation instructions](https://ecogenomics.github.io/GTDBTk/installing/index.html).
+On the first run, metaMARS obtains missing databases and stores them in `~/databases/metamars`. Later runs reuse these databases, including runs with different output directories. Use `--db-dir` to select another permanent location with sufficient storage:
 
 ```bash
-export CHECKM2DB=/databases/checkm2/uniref100.KO.1.dmnd
-export GTDBTK_DATA_PATH=/databases/gtdb
+metamars_prep -s samples.csv -o results --db-dir /data/databases/metamars
 ```
+
+- **CheckM2:** metaMARS invokes `checkm2 database --download --path <temporary-directory> --no_write_json_db`, using the discovered CheckM2 executable/environment. CheckM2 performs its own checksum check; metaMARS requires a successful command and exactly one nonempty `.dmnd` file before placing the download under `<db-dir>/checkm2`. This uses the [official CheckM2 downloader](https://github.com/chklovski/CheckM2#database).
+- **GTDB-Tk:** Python downloads the pinned R232 reference archive directly, verifies its checksum, and extracts it safely to `<db-dir>/gtdbtk-r232`. R232 matches the GTDB-Tk 2.7 series in the supplied environment specification; see the [official compatibility table and reference-data instructions](https://ecogenomics.github.io/GTDBTk/installing/index.html#gtdb-tk-reference-data). The old `gtdbtk_db_download` package is not required. Allow storage for both the downloaded archive and the extracted database during setup.
+
+GTDB download progress appears in the terminal and run logs. CheckM2 download output is saved in its stage log and also appears in the terminal with `--verbose`. The first run requires network access and can take considerable time. Subsequent runs use the cached databases. `--skip-taxonomy` omits GTDB-Tk and its database download; CheckM2 still runs.
+
+To use databases you have already installed, supply their paths instead:
+
+```bash
+metamars_prep -s samples.csv -o results \
+  --checkm2-db /databases/checkm2/uniref100.KO.1.dmnd \
+  --gtdbtk-db /databases/gtdb/r232
+```
+
+`--checkm2-db` accepts a nonempty `.dmnd` file or a directory containing exactly one such file. `--gtdbtk-db` points to an extracted GTDB-Tk reference package. Existing `CHECKM2DB` and `GTDBTK_DATA_PATH` environment variables are also accepted; explicit CLI paths take precedence. Each database is resolved independently. Invalid explicit or environment-provided paths stop the run rather than triggering a replacement download. When neither an option nor an environment variable specifies that database, metaMARS reuses or downloads it under `--db-dir`.
 
 ## Sample sheets
 
@@ -113,8 +130,7 @@ isolate01,genomes/isolate01.fna
 ```
 
 ```bash
-metamars_prep -s isolate.csv -it isolate_genomes -o isolate-results \
-  --gtdbtk-db /databases/gtdb
+metamars_prep -s isolate.csv -it isolate_genomes -o isolate-results
 ```
 
 Read inputs require separate `read1` and `read2` files. Supplied `isolate_genomes` and `MAGs` use the `genome` field and skip raw-read QC, assembly, mapping, and binning. Each row represents one independent input unit; each supplied genome file represents one genome.
@@ -129,21 +145,21 @@ Memory is specified as an integer number of GB (default 8). The total thread and
 
 The preparation settings are fixed: fastp qualified-base Phred threshold 20, minimum read length 50, at least one surviving pair, MetaBAT2 minimum contig length 2,500 bp, and comparison eligibility of at least 50% CheckM2 completeness and at most 10% contamination. The fastp threshold defines a qualified base, not a minimum average read quality. Its default unqualified-base percentage rule remains in effect; adapter trimming is enabled and quality-tail clipping is not enabled.
 
-Host removal is not implemented. Automatic reference downloads are disabled. Assembly evaluation uses reference-free metrics. All original contigs and excluded genomes are retained. These comparison gates do not constitute a full MIMAG quality classification.
+Host removal is not implemented. Assembly evaluation uses reference-free metrics, with QUAST/MetaQUAST reference-genome downloads disabled. This is separate from the automatic CheckM2 and GTDB-Tk database setup described above. All original contigs and excluded genomes are retained. These comparison gates do not constitute a full MIMAG quality classification.
 
-`--tax-rank genus` automatically groups eligible genomes by classified genus. Genomes unresolved at the selected rank receive no group ID. `--skip-taxonomy` records `taxonomy_skipped` for otherwise eligible genomes. Tool output streams to the terminal with sample/stage prefixes and is saved in logs.
+`--tax-rank genus` automatically groups eligible genomes by classified genus. Genomes unresolved at the selected rank receive no group ID. `--skip-taxonomy` records `taxonomy_skipped` for otherwise eligible genomes. Use `-v` or `--verbose` to stream commands and detailed tool output to the terminal with sample/stage prefixes. Full tool output is always saved in logs.
 
 Samples are assembled independently. Coassembly, cross-sample differential coverage, single-end-only or long-read assembly, and automatic lane merging are not implemented. fastp orphan reads are retained for later analysis but are not assembled or mapped. SPAdes graphs and `contigs.paths` are preserved; `original_id` links canonical contigs to original SPAdes names.
 
 ## Running and failures
 
-Use a new or empty `--outdir` for each run. metaMARS executes the pipeline from the beginning; there is no resume option, checkpoint store, output hashing, or automatic retry. Existing nonempty output directories are rejected to protect their contents.
+Use a new or empty `--outdir` for each run. metaMARS executes the pipeline from the beginning; there is no resume option, checkpoint store, output hashing, or automatic retry. Existing nonempty output directories are rejected to protect their contents. Successfully prepared reference databases remain in `--db-dir` and are reused independently of sample-processing outputs.
 
-Commands and tool messages stream to the terminal and are saved under `logs/`. A failed tool stops the run and cancels other active sample processes. Partial output and logs remain for diagnosis; rerun into a new directory after correcting the error. `summary.json` and `report.html` are produced after the analyses complete.
+Progress, pipeline warnings and failure summaries appear in the terminal by default. Add `-v` or `--verbose` to also show full commands and tool messages. Commands and full tool output are always saved under `logs/`. A failed tool stops the run and cancels other active sample processes. Partial output and logs remain for diagnosis; rerun into a new directory after correcting the error. `summary.json` and `report.html` are produced after the analyses complete.
 
 ## Code structure
 
-`cli.py` parses options, `models.py` reads sample sheets, and `pipeline.py` runs the scientific steps. `runner.py` launches subprocesses and captures logs. `tools.py` finds executables and database paths. `registry.py` preserves contig identity and bin membership; `taxonomy.py` reads quality/taxonomy reports and groups genomes. `config.py` holds run settings and fixed QC thresholds.
+`cli.py` parses options, `models.py` reads sample sheets, and `pipeline.py` runs the scientific steps. `runner.py` launches subprocesses and captures logs. `tools.py` finds executables; `databases.py` handles CheckM2 database setup and `gtdb_download.py` handles the GTDB-Tk reference download and extraction. `registry.py` preserves contig identity and bin membership; `taxonomy.py` reads quality/taxonomy reports and groups genomes. `config.py` holds run settings and fixed QC thresholds.
 
 ## Outputs and validation
 
@@ -153,4 +169,4 @@ Start with `report.html`, `summary.json`, and `run_info.json`. `run_info.json` r
 python3 -m unittest discover -s tests -v
 ```
 
-The standard-library tests cover input validation, sequence identity, bin membership, retained unbinned contigs, report parsing, grouping, process failures, environment discovery, and CLI flows with synthetic tool fixtures. The recorded validation also includes real preparation tools on small generated data; see [validation.md](docs/validation.md) for results and the remaining full-pipeline validation limits. No full biological benchmark is bundled.
+The standard-library tests cover input validation, sequence identity, bin membership, retained unbinned contigs, report parsing, grouping, process failures, environment discovery, database setup, and CLI flows with synthetic tool fixtures. Database-download tests use mocked network responses and small synthetic archives; the tests do not download the full databases. The recorded validation also includes real preparation tools on small generated data; see [validation.md](docs/validation.md) for results and the remaining full-pipeline validation limits. No full biological benchmark is bundled.

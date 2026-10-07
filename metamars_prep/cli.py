@@ -35,6 +35,7 @@ def parser() -> argparse.ArgumentParser:
         add_help=False, allow_abbrev=False, formatter_class=HelpFormatter,
     )
     command.add_argument("-h", "--help", action="help", help="help message")
+    command.add_argument("-v", "--verbose", action="store_true", help="show commands and detailed tool output dflt=False")
     command.add_argument("-o", "--outdir", type=Path, required=True, help="output directory")
     command.add_argument("-t", "--threads", type=positive_int, default=2, help="working threads dflt=2")
     command.add_argument("-j", "--jobs", type=positive_int, default=1, help="Maximum concurrent samples dflt=1")
@@ -48,7 +49,10 @@ def parser() -> argparse.ArgumentParser:
         "-st", "--skip-taxonomy", action="store_true",
         help="Explicitly omit GTDB-Tk, groups are marked unresolved dflt=False",
     )
-    command.add_argument("--gtdbtk-db", help="GTDB-Tk reference database directory")
+    command.add_argument("--db-dir", type=Path, default=Path.home() / "databases" / "metamars",
+                         help="Directory for automatic database downloads dflt=~/databases/metamars")
+    command.add_argument("--checkm2-db", help="Use an existing CheckM2 .dmnd file or directory")
+    command.add_argument("--gtdbtk-db", help="Use an existing GTDB-Tk reference database directory")
     command.add_argument(
         "-it", "--input-type", metavar="TYPE",
         choices=("metagenome_reads", "isolate_reads", "isolate_genomes", "MAGs"),

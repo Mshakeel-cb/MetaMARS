@@ -123,6 +123,11 @@ def main():
             if eligible:
                 write(option(arguments, "-o") + ".1.fa", fasta_text(eligible[:1]))
     elif name == "checkm2":
+        if arguments[0] == "database":
+            if arguments[1] != "--download" or "--no_write_json_db" not in arguments:
+                raise ValueError("Expected CheckM2 download without modifying its installation")
+            write(Path(option(arguments, "--path")) / "CheckM2_database" / "uniref100.KO.1.dmnd", "synthetic downloaded database")
+            return 0
         directory = Path(option(arguments, "--input"))
         rows = ["Name\tCompleteness\tContamination"]
         for genome in sorted(directory.glob("*.fna")):

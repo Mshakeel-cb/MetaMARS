@@ -6,15 +6,22 @@ No external tools, reference downloads, or network access are required.
 """
 
 from collections import Counter
+from contextlib import redirect_stderr
 import csv
 import gzip
+import hashlib
+import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
+from unittest.mock import patch
+
+from metamars_prep.cli import main
 
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -46,7 +53,10 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.environment["CHECKM2DB"] = str(self.checkm_db)
         self.gtdb_db = self.root / "gtdb"
         self.gtdb_db.mkdir()
-        (self.gtdb_db / "VERSION_DATA").write_text("synthetic database fixture\n")
+        for name in ("markers", "masks", "msa", "pplacer", "radii", "taxonomy", "skani", "mrca_red", "split", "metadata"):
+            (self.gtdb_db / name).mkdir()
+            (self.gtdb_db / name / "fixture.txt").write_text("synthetic database fixture")
+        (self.gtdb_db / "metadata/metadata.txt").write_text("VERSION_DATA=r232\n")
         self.genome = self.root / "isolate.fna"
         self.genome.write_text(">isolate_contig\n" + "ACGT" * 750 + "\n")
         self.reads = []
@@ -58,6 +68,7 @@ class PipelineIntegrationTests(unittest.TestCase):
 
     def invoke(self, arguments, expected=0, env=None, dependencies=True, threads=2):
         command = [sys.executable, "-m", "metamars_prep", "--outdir", str(self.out), "--threads", str(threads)]
+        command += ["--db-dir", str(self.root / "databases")]
         if dependencies:
             command += ["--gtdbtk-db", str(self.gtdb_db)]
         result = subprocess.run(command + arguments, cwd=PROJECT, env={**self.environment, **(env or {})}, text=True, capture_output=True, timeout=60)
@@ -95,7 +106,7 @@ class PipelineIntegrationTests(unittest.TestCase):
         return ["--samples", str(sheet)]
 
     def test_single_isolate_genome_outputs_quality_taxonomy_and_run_info(self):
-        result = self.invoke(self.single_genome() + ["--tax-rank", "genus"])
+        result = self.invoke(self.single_genome() + ["--tax-rank", "genus", "--verbose"])
         genomes = self.rows("genomes.tsv")
         self.assertEqual(len(genomes), 1)
         self.assertEqual(genomes[0]["genome_id"], "iso_a__genome")
@@ -207,7 +218,12 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(len(self.rows("genomes.tsv")), 1)
 
     def test_skip_taxonomy_retains_genome_with_explicit_unassigned_status(self):
-        self.invoke(self.single_genome() + ["--skip-taxonomy", "--tax-rank", "genus"])
+        result = self.invoke(self.single_genome() + ["--skip-taxonomy", "--tax-rank", "genus"])
+        self.assertNotIn("Synthetic quast fixture started", result.stderr)
+        self.assertIn("Starting", result.stderr)
+        logs = "".join(p.read_text() for p in (self.out / "logs").glob("*.log"))
+        self.assertIn("Synthetic quast fixture started", logs)
+        self.assertIn("Command:", logs)
         self.assertNotIn("gtdbtk", {call["tool"] for call in self.calls()})
         self.assertNotIn("gtdbtk", self.info()["databases"])
         group = self.rows("lineage_groups.tsv")[0]
@@ -245,7 +261,8 @@ class PipelineIntegrationTests(unittest.TestCase):
         arguments = self.single_reads()
         result = self.invoke(arguments, expected=1, env={"METAMARS_FAKE_FAIL": "spades"})
         self.assertIn("17", result.stderr)
-        self.assertIn("spades", result.stderr)
+        self.assertIn("assembly failed", result.stderr)
+        self.assertIn("spades", (self.out / "logs/meta_a.assembly.log").read_text())
         self.assertFalse((self.out / "summary.json").exists())
         self.assertFalse((self.out / ".metamars").exists())
         self.assertIn("Run stopped", (self.out / "run.log").read_text())
@@ -279,6 +296,59 @@ class PipelineIntegrationTests(unittest.TestCase):
                 self.invoke(self.single_genome(), expected=1, env={"METAMARS_FAKE_GTDB": mode})
                 self.assertFalse((self.out / "summary.json").exists())
                 self.assertFalse((self.out / ".metamars.lock").exists())
+
+    def test_checkm2_downloaded_once_and_reused_across_runs(self):
+        arguments = self.single_genome() + ["--skip-taxonomy"]
+        env = {"CHECKM2DB": "", "GTDBTK_DATA_PATH": ""}
+        self.invoke(arguments, env=env, dependencies=False)
+        downloaded = self.root / "databases/checkm2/CheckM2_database/uniref100.KO.1.dmnd"
+        self.assertTrue(downloaded.is_file())
+        self.assertEqual(self.info()["databases"]["checkm2"]["path"], str(downloaded))
+        self.out = self.root / "second_run"
+        self.invoke(arguments, env=env, dependencies=False)
+        downloads = [c for c in self.calls() if c["tool"] == "checkm2" and c["arguments"][0] == "database"]
+        self.assertEqual(len(downloads), 1)
+        self.assertNotIn("gtdbtk", {c["tool"] for c in self.calls()})
+
+    def test_both_downloads_feed_quality_and_taxonomy_and_are_reused(self):
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
+            archive.add(self.gtdb_db, arcname="release232")
+        data = buffer.getvalue()
+        checksum = hashlib.md5(data, usedforsecurity=False).hexdigest()
+        cache = self.root / "databases"
+        arguments = self.single_genome() + ["--db-dir", str(cache)]
+        environment = {**self.environment, "CHECKM2DB": "", "GTDBTK_DATA_PATH": ""}
+        with patch.dict(os.environ, environment, clear=True), \
+             patch("metamars_prep.gtdb_download.urlopen", return_value=io.BytesIO(data)) as download, \
+             patch("metamars_prep.gtdb_download.GTDB_MD5", checksum), \
+             redirect_stderr(io.StringIO()) as messages:
+            for output in ("first", "second"):
+                self.out = self.root / output
+                self.assertEqual(main(arguments + ["--outdir", str(self.out)]), 0,
+                                 messages.getvalue())
+                self.assertEqual(self.summary()["taxonomic_groups"], 1)
+                databases = self.info()["databases"]
+                self.assertEqual(databases["gtdbtk"]["path"], str(cache / "gtdbtk-r232"))
+                self.assertTrue(Path(databases["checkm2"]["path"]).is_file())
+        download.assert_called_once()
+        calls = self.calls()
+        self.assertEqual(sum(c["tool"] == "gtdbtk" for c in calls), 2)
+        self.assertEqual(sum(c["tool"] == "checkm2" and c["arguments"][0] == "database"
+                             for c in calls), 1)
+        self.assertIn("checksum verified", (self.root / "first/run.log").read_text())
+        self.assertIn("Using cached GTDB-Tk", (self.root / "second/run.log").read_text())
+
+    def test_invalid_database_override_fails_before_any_download(self):
+        for flag in ("--checkm2-db", "--gtdbtk-db"):
+            with self.subTest(flag=flag):
+                result = self.invoke(self.single_genome() + [flag, str(self.root / "missing")],
+                                     expected=1, dependencies=False,
+                                     env={"CHECKM2DB": "", "GTDBTK_DATA_PATH": ""})
+                self.assertIn("database", result.stderr)
+                self.assertFalse(self.out.exists())
+                self.assertFalse((self.root / "databases").exists())
+                self.assertEqual(self.calls(), [])
 
     def test_deprecated_lineage_options_are_rejected(self):
         result = self.invoke(self.single_genome() + ["--lineage-rank", "genus"], expected=2)

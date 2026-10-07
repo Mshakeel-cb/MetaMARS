@@ -1,10 +1,10 @@
 # Validation of the simplified preparation pipeline
 
-Validated on 2026-09-25 with Python 3.13.5:
+Validated on 2026-10-06 with Python 3.13.5:
 
 ```text
 PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning -m unittest discover -s tests -q
-Ran 100 tests in 9.075s
+Ran 124 tests in 12.131s
 OK
 ```
 
@@ -12,6 +12,14 @@ The tests cover CLI and sample-sheet validation, paired FASTQ consistency,
 compressed inputs, canonical sequence identity, retained unbinned contigs, exact
 bin membership, CheckM2 and GTDB report parsing, taxonomic grouping, subprocess
 failures/cancellation, Conda/Mamba command discovery, and synthetic CLI runs.
+
+Database tests cover CheckM2 command invocation, database-path precedence,
+cache reuse, incomplete/failed downloads, GTDB R232 release checks, archive
+checksum mismatches, and unsafe archive paths/links. A combined CLI test uses
+a synthetic CheckM2 executable and a small GTDB archive served through a mocked
+network response, then checks quality/taxonomy outputs and reuse across two
+runs. Invalid supplied database paths fail before downloads; skipped taxonomy
+does not download GTDB data. These tests do not download real reference data.
 
 Integration cases exercise metagenomic reads, isolate reads, supplied genomes,
 MAGs, mixed inputs, parallel sample processing, one-thread mapping, zero bins,
@@ -26,7 +34,7 @@ streaming command syntax. Optional absent trailing metadata remains accepted.
 
 ## Real preparation-tool smoke test
 
-Existing local tool installations were also executed on generated data: 12,000
+On 2026-09-25, existing local tool installations were executed on generated data: 12,000
 paired 150-base reads sampled from twelve 25,000-base contigs. This used the same
 QC, mapping, sorting, indexing, depth, binning, and reference-free assembly
 assessment arguments as the pipeline. It did not assemble the generated reads.
@@ -52,6 +60,13 @@ covered by synthetic fixtures; the command syntax was also checked against the
 [GTDB-Tk 2.7 documentation](https://ecogenomics.github.io/GTDBTk/commands/classify_wf.html).
 The assembly-report options were checked against the
 [QUAST manual](https://quast.sourceforge.net/docs/manual.html).
+
+The pinned R232 archive URL and checksum were checked against the official
+[GTDB release directory](https://data.gtdb.ecogenomic.org/releases/release232/232.0/auxillary_files/gtdbtk_package/full_package/)
+and [GTDB-Tk compatibility table](https://ecogenomics.github.io/GTDBTk/installing/index.html#gtdb-tk-reference-data)
+on 2026-10-06. CheckM2 download options were checked against its upstream CLI
+source. Real multi-gigabyte downloads, full reference-package extraction, and
+classification against real downloaded data remain untested.
 
 The supplied Conda environment specifications were not installed or solved as a
 complete set. No full run with all real tools and databases or biological

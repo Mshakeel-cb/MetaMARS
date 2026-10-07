@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from metamars_prep.tools import discover_tools, required_tools, resolve_databases
+from metamars_prep.tools import discover_tools, required_tools
 
 
 class DiscoveryTests(unittest.TestCase):
@@ -109,52 +109,6 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(genome_tools, {"checkm2", "quast"})
         reads_tools = required_tools([SimpleNamespace(input_type="metagenome_reads")])
         self.assertEqual(reads_tools, {"checkm2", "gtdbtk", "fastp", "spades", "minimap2", "samtools", "depth", "metabat2", "metaquast"})
-
-
-class DatabaseTests(unittest.TestCase):
-    def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
-        self.check = self.root / "checkm2.dmnd"
-        self.check.write_bytes(b"database fixture")
-        self.gtdb = self.root / "gtdb"
-        self.gtdb.mkdir()
-        (self.gtdb / "metadata.txt").write_text("database fixture")
-        environment = patch.dict(os.environ, {}, clear=True)
-        environment.start()
-        self.addCleanup(environment.stop)
-
-    def test_environment_paths_have_no_inventory_or_hash_fields(self):
-        with patch.dict(os.environ, {"CHECKM2DB": str(self.check), "GTDBTK_DATA_PATH": str(self.gtdb)}):
-            self.assertEqual(resolve_databases(None, None, False), {
-                "checkm2": {"path": str(self.check)}, "gtdbtk": {"path": str(self.gtdb)},
-            })
-
-    def test_explicit_paths_take_precedence_and_skipped_taxonomy_needs_no_database(self):
-        with patch.dict(os.environ, {"CHECKM2DB": "/missing", "GTDBTK_DATA_PATH": "/missing"}):
-            self.assertEqual(resolve_databases(str(self.check), str(self.gtdb), False)["gtdbtk"]["path"], str(self.gtdb))
-            self.assertEqual(resolve_databases(str(self.check), None, True), {"checkm2": {"path": str(self.check)}})
-
-    def test_checkm_directory_requires_one_database(self):
-        self.assertEqual(resolve_databases(str(self.root), None, True)["checkm2"]["path"], str(self.check))
-        (self.root / "second.dmnd").write_bytes(b"other")
-        with self.assertRaisesRegex(ValueError, "exactly one"):
-            resolve_databases(str(self.root), None, True)
-
-    def test_missing_or_empty_databases_fail_clearly(self):
-        with self.assertRaisesRegex(ValueError, "CHECKM2DB"):
-            resolve_databases(None, None, True)
-        with self.assertRaisesRegex(ValueError, "GTDBTK_DATA_PATH"):
-            resolve_databases(str(self.check), None, False)
-        empty = self.root / "empty.dmnd"
-        empty.touch()
-        with self.assertRaisesRegex(ValueError, "Missing or empty CheckM2"):
-            resolve_databases(str(empty), None, True)
-        empty_dir = self.root / "empty"
-        empty_dir.mkdir()
-        with self.assertRaisesRegex(ValueError, "Missing or empty GTDB-Tk"):
-            resolve_databases(str(self.check), str(empty_dir), False)
 
 
 if __name__ == "__main__":

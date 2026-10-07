@@ -110,28 +110,3 @@ def discover_tools(names: set[str]) -> dict[str, list[str]]:
         + ". Add their executables to PATH or create the environments from envs/: "
         + ", ".join(environments) + ". Conda or Mamba must be available to run those environments."
     )
-
-
-def resolve_databases(checkm2: str | None, gtdbtk: str | None, skip_taxonomy: bool) -> dict:
-    """Resolve supplied database paths without scanning reference inventories."""
-    checkm2 = checkm2 or os.environ.get("CHECKM2DB")
-    gtdbtk = gtdbtk or os.environ.get("GTDBTK_DATA_PATH")
-    if not checkm2:
-        raise ValueError("Set CHECKM2DB to the CheckM2 .dmnd file or its database directory")
-    check_path = Path(checkm2).expanduser().resolve()
-    if check_path.is_dir():
-        candidates = sorted(check_path.rglob("*.dmnd"))
-        if len(candidates) != 1:
-            raise ValueError("CheckM2 directory must contain exactly one .dmnd file; specify it explicitly")
-        check_path = candidates[0]
-    if not check_path.is_file() or check_path.stat().st_size == 0:
-        raise ValueError(f"Missing or empty CheckM2 database: {check_path}")
-    result = {"checkm2": {"path": str(check_path)}}
-    if not skip_taxonomy:
-        if not gtdbtk:
-            raise ValueError("Provide --gtdbtk-db DIRECTORY (or GTDBTK_DATA_PATH)")
-        gtdb_path = Path(gtdbtk).expanduser().resolve()
-        if not gtdb_path.is_dir() or not any(gtdb_path.iterdir()):
-            raise ValueError(f"Missing or empty GTDB-Tk database directory: {gtdb_path}")
-        result["gtdbtk"] = {"path": str(gtdb_path)}
-    return result

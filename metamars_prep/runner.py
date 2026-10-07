@@ -18,7 +18,8 @@ class StageError(RuntimeError):
 
 
 class Runner:
-    def __init__(self, outdir: Path) -> None:
+    def __init__(self, outdir: Path, *, verbose: bool = False) -> None:
+        self.verbose = verbose
         self.logs = Path(outdir).resolve() / "logs"
         self.logs.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
@@ -63,7 +64,8 @@ class Runner:
     def run(self, stage: str, commands: list[list[str]], cwd: Path, *, outputs=(), env=None) -> None:
         """Execute argv lists as a pipeline without a shell.
 
-        Stream every stderr and the last stdout; intermediate stdout is data
+        Log every stderr and the last stdout, displaying them when verbose.
+        Intermediate stdout is data
         for the next command. All exit codes and declared output paths are
         checked. A failure cancels every active stage. Nothing is cached.
         """
@@ -87,7 +89,8 @@ class Runner:
                         with log_lock:
                             log.write(f"[{label}] {line}\n")
                             log.flush()
-                        self._show(stage, line)
+                        if self.verbose:
+                            self._show(stage, line)
                 except Exception as error:
                     stream_errors.append(error)
                 finally:
@@ -97,7 +100,7 @@ class Runner:
                 rendered = " | ".join(shlex.join(command) for command in commands)
                 log.write(f"Stage: {stage}\nWorking directory: {cwd}\nCommand: {rendered}\n")
                 log.flush()
-                self._show(stage, f"Running {rendered}")
+                self._show(stage, f"Running {rendered}" if self.verbose else "Starting")
                 previous = None
                 for index, command in enumerate(commands, 1):
                     with self._lock:

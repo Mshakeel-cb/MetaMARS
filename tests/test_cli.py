@@ -28,15 +28,21 @@ class CliTests(unittest.TestCase):
     def test_public_flags_are_exactly_the_requested_flat_interface(self):
         flags = {flag for action in parser()._actions for flag in action.option_strings}
         self.assertEqual(flags, {
-            "-h", "--help", "-o", "--outdir", "-t", "--threads", "-j", "--jobs",
+            "-h", "--help", "-v", "--verbose", "-o", "--outdir", "-t", "--threads", "-j", "--jobs",
             "-m", "--memory", "-tr", "--tax-rank", "-st", "--skip-taxonomy",
-            "--gtdbtk-db", "-it", "--input-type", "-s", "--samples",
+            "--db-dir", "--checkm2-db", "--gtdbtk-db", "-it", "--input-type", "-s", "--samples",
         })
         args = parser().parse_args(self.single)
         self.assertEqual((args.threads, args.jobs, args.memory), (2, 1, 8))
         self.assertEqual(args.tax_rank, "species")
         self.assertFalse(args.skip_taxonomy)
+        self.assertFalse(args.verbose)
+        self.assertTrue(parser().parse_args(self.single + ["-v"]).verbose)
+        self.assertTrue(parser().parse_args(self.single + ["--verbose"]).verbose)
         self.assertIsNone(args.input_type)
+        self.assertEqual(args.db_dir, Path.home() / "databases" / "metamars")
+        self.assertIsNone(args.checkm2_db)
+        self.assertIsNone(args.gtdbtk_db)
         self.assertEqual(args.samples, self.sheet)
         self.assertFalse(hasattr(args, "command"))
 
@@ -85,7 +91,7 @@ class CliTests(unittest.TestCase):
     def test_removed_flags_and_subcommands_are_rejected(self):
         cases = [[flag] for flag in ("prepare", "doctor", "--version", "--dry-run", "--quiet", "--resume", "-r")]
         cases += [[flag, "value"] for flag in (
-            "--memory-gb", "--sample-id", "--read1", "--read2", "--genome", "--checkm2-db",
+            "--memory-gb", "--sample-id", "--read1", "--read2", "--genome",
             "--tool", "--host-reference", "--reference", "--min-bin-contig", "--min-completeness",
             "--max-contamination", "--min-read-length", "--qualified-phred", "--min-read-pairs",
             "--adapter-fasta", "--tax", "--sam",

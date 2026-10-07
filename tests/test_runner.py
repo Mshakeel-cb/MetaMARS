@@ -33,6 +33,7 @@ class RunnerTests(unittest.TestCase):
         return self.runner.run("sample.stage", commands, self.cwd, outputs=outputs)
 
     def test_stdout_stderr_streamed_and_saved(self):
+        self.runner.verbose = True
         self.run_stage([python("import sys; from pathlib import Path; print('stdout message'); print('stderr message', file=sys.stderr); Path('result').write_text('data')")], outputs=["result"])
         self.assertEqual((self.cwd / "result").read_text(), "data")
         for message in ("stdout message", "stderr message"):

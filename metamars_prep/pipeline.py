@@ -11,6 +11,7 @@ import itertools
 import json
 import logging
 import math
+import os
 from pathlib import Path
 import shutil
 
@@ -18,7 +19,9 @@ from . import __version__
 from .registry import build_membership, normalize_fasta, write_tsv
 from .runner import Runner
 from .taxonomy import RANKS, collect_gtdb_failures, group_genomes, parse_checkm2, parse_gtdb
-from .tools import discover_tools, required_tools, resolve_databases
+from .tools import discover_tools, required_tools
+from .databases import ensure_checkm2, validate_checkm2
+from .gtdb_download import ensure_gtdbtk, validate_gtdbtk
 
 LOG = logging.getLogger("metamars")
 
@@ -315,27 +318,38 @@ def prepare(samples, args):
     out = args.outdir = args.outdir.expanduser().resolve()
     if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise ValueError("Output directory must be new or empty. Choose a new --outdir for each run.")
+    # Reject mistaken local paths before starting a potentially large download.
+    check_path = args.checkm2_db or os.environ.get("CHECKM2DB")
+    gtdb_path = args.gtdbtk_db or os.environ.get("GTDBTK_DATA_PATH")
+    if check_path:
+        validate_checkm2(check_path)
+    if gtdb_path and not args.skip_taxonomy:
+        validate_gtdbtk(gtdb_path)
     tools = discover_tools(required_tools(samples, args.skip_taxonomy))
-    databases = resolve_databases(None, args.gtdbtk_db, args.skip_taxonomy)
     jobs = min(args.jobs, args.threads, args.memory, len(samples))
     threads, memory = args.threads // jobs, args.memory // jobs
     out.mkdir(parents=True, exist_ok=True)
     # Creating work exclusively also prevents two launches sharing an empty directory.
     (out / "work").mkdir()
-    write_json(out / "run_info.json", {
-        "version": __version__, "parameters": asdict(args),
-        "samples": [asdict(sample) for sample in samples], "tools": tools, "databases": databases,
-    })
     handlers = [logging.StreamHandler(), logging.FileHandler(out / "run.log")]
     for handler in handlers:
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s", "%H:%M:%S"))
         LOG.addHandler(handler)
     LOG.setLevel(logging.INFO)
-    runner = Runner(out)
+    runner = Runner(out, verbose=args.verbose)
     try:
         LOG.info("metaMARS %s: %d samples, %d concurrent jobs, %d threads and %d GB per sample",
                  __version__, len(samples), jobs, threads, memory)
         LOG.info("Taxonomic rank: %s. Memory is advisory outside SPAdes.", args.tax_rank)
+        cache = args.db_dir.expanduser().resolve()
+        databases = {"checkm2": ensure_checkm2(args.checkm2_db, cache, runner, tools["checkm2"])}
+        if not args.skip_taxonomy:
+            databases["gtdbtk"] = ensure_gtdbtk(args.gtdbtk_db, cache)
+        LOG.info("Database paths: %s", "; ".join(f"{name}={value['path']}" for name, value in databases.items()))
+        write_json(out / "run_info.json", {
+            "version": __version__, "parameters": asdict(args),
+            "samples": [asdict(sample) for sample in samples], "tools": tools, "databases": databases,
+        })
         executor = ThreadPoolExecutor(max_workers=jobs)
         try:
             futures = [executor.submit(process_sample, sample, args, runner, tools, threads, memory)
